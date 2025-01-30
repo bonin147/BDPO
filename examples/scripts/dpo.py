@@ -11,40 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""
-# Full training
-python examples/scripts/dpo.py \
-    --dataset_name trl-lib/ultrafeedback_binarized \
-    --model_name_or_path Qwen/Qwen2-0.5B-Instruct \
-    --learning_rate 5.0e-7 \
-    --num_train_epochs 1 \
-    --per_device_train_batch_size 2 \
-    --gradient_accumulation_steps 8 \
-    --gradient_checkpointing \
-    --logging_steps 25 \
-    --eval_strategy steps \
-    --eval_steps 50 \
-    --output_dir Qwen2-0.5B-DPO \
-    --no_remove_unused_columns
-
-# LoRA:
-python examples/scripts/dpo.py \
-    --dataset_name trl-lib/ultrafeedback_binarized \
-    --model_name_or_path Qwen/Qwen2-0.5B-Instruct \
-    --learning_rate 5.0e-6 \
-    --num_train_epochs 1 \
-    --per_device_train_batch_size 2 \
-    --gradient_accumulation_steps 8 \
-    --gradient_checkpointing \
-    --logging_steps 25 \
-    --eval_strategy steps \
-    --eval_steps 50 \
-    --output_dir Qwen2-0.5B-DPO \
-    --no_remove_unused_columns \
-    --use_peft \
-    --lora_r 32 \
-    --lora_alpha 16
-"""
 
 import torch
 from datasets import load_dataset
@@ -132,10 +98,6 @@ if __name__ == "__main__":
     ################
     # optimizer = AdamW(model.parameters(), lr=training_args.learning_rate)
 
-# 고정 Learning Rate Scheduler 설정
-    # lr_scheduler = LambdaLR(optimizer, lr_lambda=lambda epoch: 1.0)  # Learning rate를 항상 1.0으로 유지
-    # optimizer = optim.AdamW(model.parameters(), lr=training_args.learning_rate) # Toy용
-    # lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1) # Toy용
 
     trainer = DPOTrainer(
         model,
@@ -147,7 +109,7 @@ if __name__ == "__main__":
         # eval_dataset=eval_dataset,
         processing_class=tokenizer,
         peft_config=peft_config,
-        # optimizers=(optimizer, lr_scheduler), # Toy용
+        # optimizers=(optimizer, lr_scheduler),
     )
 
     trainer.train()
