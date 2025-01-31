@@ -96,7 +96,6 @@ if __name__ == "__main__":
     ##########
     # Training
     ################
-    # optimizer = AdamW(model.parameters(), lr=training_args.learning_rate)
 
 
     trainer = DPOTrainer(
@@ -109,7 +108,6 @@ if __name__ == "__main__":
         # eval_dataset=eval_dataset,
         processing_class=tokenizer,
         peft_config=peft_config,
-        # optimizers=(optimizer, lr_scheduler),
     )
 
     trainer.train()
