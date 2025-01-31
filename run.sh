@@ -12,7 +12,7 @@ do
     accelerate launch --config_file examples/accelerate_configs/deepspeed_zero2.yaml \
         examples/scripts/dpo.py \
         --dataset_name trl-lib/ultrafeedback_binarized \
-        --model_name_or_path JayHyeon/Qwen2.5-0.5B-SFT-2e-5-2ep \
+        --model_name_or_path Qwen/Qwen2.5-0.5B-Instruct \
         --learning_rate ${lr[$i]} \
         --num_train_epochs ${EPOCHS[$i]} \
         --ref_eps ${BDPO[$i]} \
