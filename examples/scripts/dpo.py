@@ -90,9 +90,6 @@ if __name__ == "__main__":
 
     dataset = load_dataset(script_args.dataset_name)
 
-    # train_dataset = dataset[script_args.dataset_train_split]
-    # train_dataset = train_dataset.shuffle(seed=42).select(range(len(train_dataset) // 100))
-
     ##########
     # Training
     ################
