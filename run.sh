@@ -1,9 +1,9 @@
-MODEL=(Model_name)
+MODEL=(Qwen/Qwen2.5-0.5B-Instruct)
 LOSS=(BDPO)
 ALP=(0) # DPO+NLL Hyperparameter
-LAM=(0) # DPOP Hyperparameter
+DPOP_LAM=(0) # DPOP Hyperparameter
 BDPO=(True) # Use BDPO
-Mixture=(0.5) # BDPO Hyperparameter
+BDPO_LAM=(0.5) # BDPO Hyperparameter
 lr=(5e-7)
 EPOCHS=(1)
 
@@ -15,10 +15,10 @@ do
         --model_name_or_path Qwen/Qwen2.5-0.5B-Instruct \
         --learning_rate ${lr[$i]} \
         --num_train_epochs ${EPOCHS[$i]} \
-        --ref_eps ${BDPO[$i]} \
+        --bdpo ${BDPO[$i]} \
         --rpo_alpha ${ALP[$i]} \
-        --lam ${LAM[$i]} \
-        --mixture ${Mixture[$i]} \
+        --dpop_lambda ${DPOP_LAM[$i]} \
+        --bdpo_lambda ${BDPO_LAM[$i]} \
         --per_device_train_batch_size 1 \
         --per_device_eval_batch_size 1 \
         --gradient_accumulation_steps 16 \
@@ -29,6 +29,6 @@ do
         --eval_steps 50 \
         --push_to_hub \
         --no_remove_unused_columns \
-        --output_dir /root/trl/dynamics/${MODEL[$i]}-${LOSS[$i]}_${lr[$i]}-${EPOCHS[$i]}ep_${ALP[$i]}alp_${LAM[$i]}lam \
+        --output_dir /workspace/BDPO/results/${MODEL[$i]}-${LOSS[$i]}_${lr[$i]}-${EPOCHS[$i]}ep_${ALP[$i]}alp_${DPOP_LAM[$i]}dpop_${BDPO_LAM[$i]}bdpo \
         --bf16
 done

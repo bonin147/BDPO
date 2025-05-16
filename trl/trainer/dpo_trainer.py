@@ -450,14 +450,10 @@ class DPOTrainer(Trainer):
         if args.loss_type == "kto_pair":
             raise ValueError("Support for kto_pair has been removed in DPOTrainer. Please use KTOTrainer.")
 
-        if args.eps == 0.0:
-            self.eps = None
-        else:
-            self.eps = math.log(args.eps)
-        self.ref_eps = args.ref_eps
-        self.lam = args.lam
-        self.mixture = args.mixture
-        self.vpo = args.vpo
+
+        self.bdpo = args.bdpo
+        self.dpop_lambda = args.dpop_lambda
+        self.bdpo_lambda = args.bdpo_lambda
         self.beta = args.beta
         self.label_smoothing = args.label_smoothing
         self.loss_type = args.loss_type
@@ -548,8 +544,9 @@ class DPOTrainer(Trainer):
             )
             return dataset
 
-        # Use the prepared dataset
-        train_dataset = prepare_dataset(train_dataset)
+        # Only use the prepare_dataset function if the dataset has score_chosen field
+        if "score_chosen" in train_dataset.features:
+            train_dataset = prepare_dataset(train_dataset)
 
         super().__init__(
             model=model,
@@ -953,8 +950,8 @@ class DPOTrainer(Trainer):
         rejected_logps: torch.FloatTensor,
         ref_chosen_logps: torch.FloatTensor,
         ref_rejected_logps: torch.FloatTensor,
-        chosen_scores: torch.FloatTensor,
-        rejected_scores: torch.FloatTensor,
+        chosen_scores: Optional[torch.FloatTensor] = None,
+        rejected_scores: Optional[torch.FloatTensor] = None,
     ) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
         """
         Compute the DPO loss for a batch of policy and reference model log probabilities.
@@ -980,16 +977,12 @@ class DPOTrainer(Trainer):
         # Get the log ratios for the chosen and rejected responses
         chosen_logratios = chosen_logps.to(device) - (not self.reference_free) * ref_chosen_logps.to(device)
         rejected_logps_org = rejected_logps
-        if self.eps != None:
-            if self.ref_eps == False:
-                log_exp_plus_c = LogExpPlusCFunction.apply
-                rejected_logps = log_exp_plus_c(rejected_logps, self.eps)
 
-        if self.ref_eps:
+        if self.bdpo:
             log_exp_plus_c = LogExpPlusCFunction.apply
-            self.eps = ref_rejected_logps+torch.log(torch.tensor([1-self.mixture], dtype=rejected_logps.dtype, device=device))
-            rejected_logps = rejected_logps+torch.log(torch.tensor([self.mixture], dtype=rejected_logps.dtype, device=device))
-            rejected_logps = log_exp_plus_c(rejected_logps, self.eps)
+            mixture_dist_prob = ref_rejected_logps+torch.log(torch.tensor([1-self.bdpo_lambda], dtype=rejected_logps.dtype, device=device))
+            rejected_logps = rejected_logps+torch.log(torch.tensor([self.bdpo_lambda], dtype=rejected_logps.dtype, device=device))
+            rejected_logps = log_exp_plus_c(rejected_logps, mixture_dist_prob)
         
         
         rejected_logratios = rejected_logps.to(device) - (not self.reference_free) * ref_rejected_logps.to(device)
@@ -1006,7 +999,7 @@ class DPOTrainer(Trainer):
                 alpha_coef = float(self.f_divergence_params[FDivergenceConstants.ALPHA_DIVERGENCE_COEF_KEY])
             logits = (cap_exp(rejected_logratios * -alpha_coef) - cap_exp(chosen_logratios * -alpha_coef)) / alpha_coef
         else:
-            if self.lam != 0.0:
+            if self.dpop_lambda != 0.0:
                 penalty = torch.maximum(torch.tensor(0.0, device=self.accelerator.device), -chosen_logratios)
 
             logratios = chosen_logps - rejected_logps
@@ -1030,18 +1023,17 @@ class DPOTrainer(Trainer):
                 logits -= F.softplus(chosen_logratios) - F.softplus(rejected_logratios)
 
         label_smoothing = self.label_smoothing  # Default is 0
-        if self.vpo:
-            # Using 2^score with actual preference scores
-            chosen_weight = torch.pow(2.0, chosen_scores)
-            rejected_weight = torch.pow(2.0, rejected_scores)
-            label_smoothing = rejected_weight / (chosen_weight + rejected_weight)
-
+        
         # The beta is a temperature parameter for the DPO loss, typically something in the range of 0.1 to 0.5.
         # We ignore the reference model as beta -> 0. The label_smoothing parameter encodes our uncertainty about the
         # labels and calculates a conservative DPO loss.
-        if self.loss_type == "sigmoid":
-            if self.lam != 0.0:
-                logits -= self.lam * penalty
+        if self.loss_type == "minor_dpo":
+            max_term = torch.maximum(torch.tensor(0.0, device=device), rejected_logratios)
+            losses = -F.logsigmoid(self.beta * chosen_logratios - self.beta * max_term)
+            
+        elif self.loss_type == "sigmoid":
+            if self.dpop_lambda != 0.0:
+                logits -= self.dpop_lambda * penalty
             losses = (
                 -F.logsigmoid(self.beta * logits) * (1 - label_smoothing)
                 - F.logsigmoid(-self.beta * logits) * label_smoothing
@@ -1067,9 +1059,8 @@ class DPOTrainer(Trainer):
             losses = torch.relu(1 - self.beta * logits)
 
         elif self.loss_type == "ipo":
-            # Apply VPO label smoothing to IPO loss
             # Original IPO loss: (logits - 1 / (2 * self.beta)) ** 2
-            target = (1 - 2 * label_smoothing) / (2 * self.beta)  # Adjusts target based on label smoothing
+            target = 1 / (2 * self.beta)  # Adjusts target based on label smoothing
             losses = (logits - target) ** 2
 
         elif self.loss_type == "bco_pair":
@@ -1299,9 +1290,9 @@ class DPOTrainer(Trainer):
         output["rejected_logps"] = all_logps[num_examples:]
         output["mean_chosen_logits"] = logits[:num_examples][loss_mask[:num_examples]].mean()
         output["mean_rejected_logits"] = logits[num_examples:][loss_mask[num_examples:]].mean()
-
-        output["score_chosen"] = batch["score_chosen"]
-        output["score_rejected"] = batch["score_rejected"]
+        if "score_chosen" in batch:
+            output["score_chosen"] = batch["score_chosen"]
+            output["score_rejected"] = batch["score_rejected"]
 
         if self.aux_loss_enabled:
             output["aux_loss"] = outputs.aux_loss
@@ -1327,11 +1318,17 @@ class DPOTrainer(Trainer):
         else:
             ref_chosen_logps, ref_rejected_logps = self.compute_ref_log_probs(batch)
 
-        losses, chosen_rewards, rejected_rewards = self.dpo_loss(
-            model_output["chosen_logps"], model_output["rejected_logps"], ref_chosen_logps, ref_rejected_logps, model_output["score_chosen"], model_output["score_rejected"]
-        )
+        if "score_chosen" in batch:
+            losses, chosen_rewards, rejected_rewards = self.dpo_loss(
+                model_output["chosen_logps"], model_output["rejected_logps"], ref_chosen_logps, ref_rejected_logps, model_output["score_chosen"], model_output["score_rejected"]
+            )
+        else:
+            losses, chosen_rewards, rejected_rewards = self.dpo_loss(
+                model_output["chosen_logps"], model_output["rejected_logps"], ref_chosen_logps, ref_rejected_logps
+            )
         reward_accuracies = (chosen_rewards > rejected_rewards).float()
 
+        # 선호도 차이 계산 (log ratio difference)
         log_ratio_diff = (model_output["chosen_logps"] - ref_chosen_logps).sum(dim=-1) - \
                         (model_output["rejected_logps"] - ref_rejected_logps).sum(dim=-1)
 

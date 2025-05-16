@@ -145,11 +145,9 @@ class DPOConfig(TrainingArguments):
 
     learning_rate: float = 1e-6
     beta: float = 0.1
-    lam: float = 0.0
-    eps: float = 0.0
-    ref_eps: bool = False
-    mixture: float = 0.5
-    vpo: bool = False
+    bdpo: bool = False
+    bdpo_lambda: float = 0.5
+    dpop_lambda: float = 0.0
     label_smoothing: float = 0.0
     loss_type: Literal[
         "sigmoid",
